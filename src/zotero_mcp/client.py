@@ -1,37 +1,7 @@
-import os
 from typing import Any
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 from pyzotero import zotero
-
-
-# Load environment variables
-load_dotenv()
-
-
-# Initialize Zotero client
-def get_zotero_client() -> zotero.Zotero:
-    """Get authenticated Zotero client using environment variables"""
-    library_id = os.getenv("ZOTERO_LIBRARY_ID")
-    library_type = os.getenv("ZOTERO_LIBRARY_TYPE", "user")
-    api_key = os.getenv("ZOTERO_API_KEY") or None
-    local = os.getenv("ZOTERO_LOCAL", "").lower() in ["true", "yes", "1"]
-    if local:
-        if not library_id:
-            # Indicates "current user" for the local API
-            library_id = "0"
-    elif not all([library_id, api_key]):
-        raise ValueError(
-            "Missing required environment variables. Please set ZOTERO_LIBRARY_ID and ZOTERO_API_KEY"
-        )
-
-    return zotero.Zotero(
-        library_id=library_id,
-        library_type=library_type,
-        api_key=api_key,
-        local=local,
-    )
 
 
 class AttachmentDetails(BaseModel):
@@ -43,11 +13,9 @@ def get_attachment_details(
     zot: zotero.Zotero,
     item: dict[str, Any],
 ) -> AttachmentDetails | None:
-    """Get attachment ID and content type for a Zotero item"""
     data = item.get("data", {})
     item_type = data.get("itemType")
 
-    # Direct attachment - check if it's a PDF or other supported type
     if item_type == "attachment":
         content_type = data.get("contentType")
         return AttachmentDetails(
@@ -55,10 +23,8 @@ def get_attachment_details(
             content_type=content_type,
         )
 
-    # For regular items, look for child attachments
     try:
         children: Any = zot.children(data.get("key", ""))
-        # Group attachments by content type and size
         pdfs = []
         htmls = []
         others = []
@@ -67,7 +33,7 @@ def get_attachment_details(
             child_data = child.get("data", {})
             if child_data.get("itemType") == "attachment":
                 content_type = child_data.get("contentType")
-                file_size = child_data.get("md5", "")  # Use md5 as proxy for size
+                file_size = child_data.get("md5", "")
 
                 if content_type == "application/pdf":
                     pdfs.append((child_data.get("key"), content_type, file_size))
@@ -76,7 +42,6 @@ def get_attachment_details(
                 else:
                     others.append((child_data.get("key"), content_type, file_size))
 
-        # Return first match in priority order
         if pdfs:
             pdfs.sort(key=lambda x: x[2], reverse=True)
             return AttachmentDetails(

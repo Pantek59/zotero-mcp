@@ -1,5 +1,3 @@
-"""Pytest fixtures for zotero-mcp tests"""
-
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -9,19 +7,21 @@ from pyzotero import zotero
 
 @pytest.fixture
 def mock_zotero(monkeypatch) -> MagicMock:
-    """Fixture that returns a mocked Zotero client"""
     mock = MagicMock(spec=zotero.Zotero)
 
-    def mock_get_zotero_client():
+    def mock_get_zotero_client(*args, **kwargs):
         return mock
 
-    monkeypatch.setattr("zotero_mcp.get_zotero_client", mock_get_zotero_client)
+    monkeypatch.setattr("zotero_mcp.get_zotero_client_from_env", mock_get_zotero_client)
+    monkeypatch.setattr(
+        "zotero_mcp.get_zotero_client_from_credentials", mock_get_zotero_client
+    )
+    monkeypatch.setattr("zotero_mcp._get_zotero_client", mock_get_zotero_client)
     return mock
 
 
 @pytest.fixture
 def sample_item() -> dict[str, Any]:
-    """Fixture that returns a sample Zotero item"""
     return {
         "key": "ABCD1234",
         "data": {
@@ -44,7 +44,6 @@ def sample_item() -> dict[str, Any]:
 
 @pytest.fixture
 def sample_attachment() -> dict[str, Any]:
-    """Fixture that returns a sample Zotero attachment item"""
     return {
         "key": "XYZ789",
         "data": {
