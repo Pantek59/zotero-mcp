@@ -1,4 +1,6 @@
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -16,6 +18,12 @@ async def healthz(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"}, status_code=200)
 
 
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    async with mcp.session_manager.run():
+        yield
+
+
 def create_app() -> Starlette:
     mcp_app = mcp.streamable_http_app()
 
@@ -27,6 +35,7 @@ def create_app() -> Starlette:
         middleware=[
             Middleware(RateLimitMiddleware),
         ],
+        lifespan=lifespan,
     )
 
     return app
