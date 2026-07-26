@@ -89,13 +89,16 @@ def format_item(item: dict[str, Any]) -> str:
             f"Item Key: `{item_key}`",
         ]
 
-        if parent_item := data.get("parentItem"):
+        parent_item = data.get("parentItem")
+        if parent_item:
             formatted.append(f"Parent Item: `{parent_item}`")
 
-        if date := data.get("dateModified"):
+        date = data.get("dateModified")
+        if date:
             formatted.append(f"Last Modified: {date}")
 
-        if tags := data.get("tags"):
+        tags = data.get("tags")
+        if tags:
             tag_list = [f"`{tag['tag']}`" for tag in tags]
             formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
 
@@ -128,37 +131,48 @@ def format_item(item: dict[str, Any]) -> str:
         role_display = role.capitalize() + ("s" if len(names) > 1 else "")
         formatted.append(f"{role_display}: {'; '.join(names)}")
 
-    if publication := data.get("publicationTitle"):
+    publication = data.get("publicationTitle")
+    if publication:
         formatted.append(f"Publication: {publication}")
-    if volume := data.get("volume"):
+    volume = data.get("volume")
+    if volume:
         volume_info = f"Volume: {volume}"
-        if issue := data.get("issue"):
+        issue = data.get("issue")
+        if issue:
             volume_info += f", Issue: {issue}"
-        if pages := data.get("pages"):
+        pages = data.get("pages")
+        if pages:
             volume_info += f", Pages: {pages}"
         formatted.append(volume_info)
 
-    if abstract := data.get("abstractNote"):
+    abstract = data.get("abstractNote")
+    if abstract:
         formatted.append(f"\n### Abstract\n{abstract}")
 
-    if tags := data.get("tags"):
+    tags = data.get("tags")
+    if tags:
         tag_list = [f"`{tag['tag']}`" for tag in tags]
         formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
 
     identifiers = []
-    if url := data.get("url"):
+    url = data.get("url")
+    if url:
         identifiers.append(f"URL: {url}")
-    if doi := data.get("DOI"):
+    doi = data.get("DOI")
+    if doi:
         identifiers.append(f"DOI: {doi}")
-    if isbn := data.get("ISBN"):
+    isbn = data.get("ISBN")
+    if isbn:
         identifiers.append(f"ISBN: {isbn}")
-    if issn := data.get("ISSN"):
+    issn = data.get("ISSN")
+    if issn:
         identifiers.append(f"ISSN: {issn}")
 
     if identifiers:
         formatted.append("\n### Identifiers\n" + "\n".join(identifiers))
 
-    if notes := item.get("meta", {}).get("numChildren", 0):
+    notes = item.get("meta", {}).get("numChildren", 0)
+    if notes:
         formatted.append(
             f"\n### Additional Information\nNumber of notes/attachments: {notes}"
         )
@@ -343,10 +357,12 @@ async def search_items(
                     f"\n{preview}",
                 ]
 
-                if parent_item := data.get("parentItem"):
+                parent_item = data.get("parentItem")
+                if parent_item:
                     entry.insert(2, f"**Parent Item**: `{parent_item}`")
 
-                if tags := data.get("tags"):
+                tags = data.get("tags")
+                if tags:
                     tag_list = [f"`{tag['tag']}`" for tag in tags[:5]]
                     if len(tags) > 5:
                         tag_list.append("...")
@@ -371,12 +387,17 @@ async def search_items(
             creator_str = "; ".join(creators) if creators else "No authors"
 
             source = ""
-            if pub := data.get("publicationTitle"):
+            pub = data.get("publicationTitle")
+            if pub:
                 source = pub
-            elif book := data.get("bookTitle"):
-                source = f"In: {book}"
-            elif publisher := data.get("publisher"):
-                source = f"{publisher}"
+            else:
+                book = data.get("bookTitle")
+                if book:
+                    source = f"In: {book}"
+                else:
+                    publisher = data.get("publisher")
+                    if publisher:
+                        source = f"{publisher}"
 
             abstract = data.get("abstractNote", "")
             if len(abstract) > 150:
@@ -394,7 +415,8 @@ async def search_items(
             if abstract:
                 entry.append(f"\n{abstract}")
 
-            if tags := data.get("tags"):
+            tags = data.get("tags")
+            if tags:
                 tag_list = [f"`{tag['tag']}`" for tag in tags[:5]]
                 if len(tags) > 5:
                     tag_list.append("...")
