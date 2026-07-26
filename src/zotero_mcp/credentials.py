@@ -49,6 +49,24 @@ def resolve_zotero_credentials(context_request: Request | None) -> ZoteroCredent
     library_id = context_request.headers.get(ZOTERO_LIBRARY_ID_HEADER)
     library_type = context_request.headers.get(ZOTERO_LIBRARY_TYPE_HEADER, "user")
 
+    unsubstituted = []
+    if api_key and api_key.startswith("${"):
+        unsubstituted.append(ZOTERO_API_KEY_HEADER)
+    if library_id and library_id.startswith("${"):
+        unsubstituted.append(ZOTERO_LIBRARY_ID_HEADER)
+    if library_type and library_type.startswith("${"):
+        unsubstituted.append(ZOTERO_LIBRARY_TYPE_HEADER)
+
+    if unsubstituted:
+        raise MissingCredentialsError(
+            "Zotero credentials missing or invalid. "
+            "Header variable substitution failed - the following headers still "
+            "contain literal ${...} templates: "
+            f"{', '.join(unsubstituted)}. "
+            "Ensure your MCP client (e.g. LibreChat) substitutes these variables, "
+            "or hardcode the values directly in the configuration."
+        )
+
     logger.info(
         "Resolved headers: api_key=%s, library_id=%r, library_type=%r",
         "***" if api_key else None,
