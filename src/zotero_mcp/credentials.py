@@ -1,7 +1,10 @@
 import hashlib
+import logging
 from dataclasses import dataclass
 
 from starlette.requests import Request
+
+logger = logging.getLogger(__name__)
 
 
 class MissingCredentialsError(Exception):
@@ -45,6 +48,13 @@ def resolve_zotero_credentials(context_request: Request | None) -> ZoteroCredent
     api_key = context_request.headers.get(ZOTERO_API_KEY_HEADER)
     library_id = context_request.headers.get(ZOTERO_LIBRARY_ID_HEADER)
     library_type = context_request.headers.get(ZOTERO_LIBRARY_TYPE_HEADER, "user")
+
+    logger.debug(
+        "Resolved headers: api_key=%s, library_id=%s, library_type=%s",
+        "***" if api_key else None,
+        library_id,
+        library_type,
+    )
 
     missing = []
     if not api_key or not api_key.strip():
