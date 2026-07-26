@@ -26,6 +26,11 @@ def set_multi_tenant_mode(enabled: bool) -> None:
     global _MULTI_TENANT_MODE
     _MULTI_TENANT_MODE = enabled
     if enabled:
+        from mcp.server.fastmcp.server import TransportSecuritySettings
+
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
         logger.info(
             "Running in multi-tenant/header mode. "
             "Per-request X-Zotero-* headers are required."
