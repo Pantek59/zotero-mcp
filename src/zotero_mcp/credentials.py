@@ -49,8 +49,8 @@ def resolve_zotero_credentials(context_request: Request | None) -> ZoteroCredent
     library_id = context_request.headers.get(ZOTERO_LIBRARY_ID_HEADER)
     library_type = context_request.headers.get(ZOTERO_LIBRARY_TYPE_HEADER, "user")
 
-    logger.debug(
-        "Resolved headers: api_key=%s, library_id=%s, library_type=%s",
+    logger.info(
+        "Resolved headers: api_key=%s, library_id=%r, library_type=%r",
         "***" if api_key else None,
         library_id,
         library_type,
