@@ -57,12 +57,12 @@ def _get_zotero_client(ctx: Context | None = None) -> zotero_module.Zotero:
         request_obj = ctx.request_context.request
 
     if request_obj is not None:
+        api_key_val = request_obj.headers.get(ZOTERO_API_KEY_HEADER, "")
         logger.info(
-            "Request headers: %s",
-            {
-                k: ("***" if k.lower() == ZOTERO_API_KEY_HEADER else v)
-                for k, v in request_obj.headers.items()
-            },
+            "Request headers: api_key_prefix=%s..., library_id=%r, library_type=%r",
+            api_key_val[:4] if len(api_key_val) >= 4 else "(short)",
+            request_obj.headers.get("x-zotero-library-id"),
+            request_obj.headers.get("x-zotero-library-type"),
         )
     else:
         logger.warning("No HTTP request object available in context")
