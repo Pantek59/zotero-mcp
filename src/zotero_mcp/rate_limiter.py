@@ -64,7 +64,8 @@ class RateLimitMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":n            await self.app(scope, receive, send)
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
             return
 
         request = Request(scope, receive)
