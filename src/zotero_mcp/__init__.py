@@ -59,7 +59,10 @@ def _get_zotero_client(ctx: Context | None = None) -> zotero_module.Zotero:
     if request_obj is not None:
         logger.info(
             "Request headers: %s",
-            {k: ("***" if k.lower() == ZOTERO_API_KEY_HEADER else v) for k, v in request_obj.headers.items()},
+            {
+                k: ("***" if k.lower() == ZOTERO_API_KEY_HEADER else v)
+                for k, v in request_obj.headers.items()
+            },
         )
     else:
         logger.warning("No HTTP request object available in context")
@@ -86,13 +89,16 @@ def format_item(item: dict[str, Any]) -> str:
             f"Item Key: `{item_key}`",
         ]
 
-        if parent_item := data.get("parentItem"):
+        parent_item = data.get("parentItem")
+        if parent_item:
             formatted.append(f"Parent Item: `{parent_item}`")
 
-        if date := data.get("dateModified"):
+        date = data.get("dateModified")
+        if date:
             formatted.append(f"Last Modified: {date}")
 
-        if tags := data.get("tags"):
+        tags = data.get("tags")
+        if tags:
             tag_list = [f"`{tag['tag']}`" for tag in tags]
             formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
 
@@ -125,37 +131,48 @@ def format_item(item: dict[str, Any]) -> str:
         role_display = role.capitalize() + ("s" if len(names) > 1 else "")
         formatted.append(f"{role_display}: {'; '.join(names)}")
 
-    if publication := data.get("publicationTitle"):
+    publication = data.get("publicationTitle")
+    if publication:
         formatted.append(f"Publication: {publication}")
-    if volume := data.get("volume"):
+    volume = data.get("volume")
+    if volume:
         volume_info = f"Volume: {volume}"
-        if issue := data.get("issue"):
+        issue = data.get("issue")
+        if issue:
             volume_info += f", Issue: {issue}"
-        if pages := data.get("pages"):
+        pages = data.get("pages")
+        if pages:
             volume_info += f", Pages: {pages}"
         formatted.append(volume_info)
 
-    if abstract := data.get("abstractNote")):
+    abstract = data.get("abstractNote")
+    if abstract:
         formatted.append(f"\n### Abstract\n{abstract}")
 
-    if tags := data.get("tags"):
+    tags = data.get("tags")
+    if tags:
         tag_list = [f"`{tag['tag']}`" for tag in tags]
         formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
 
     identifiers = []
-    if url := data.get("url"):
+    url = data.get("url")
+    if url:
         identifiers.append(f"URL: {url}")
-    if doi := data.get("DOI"):
+    doi = data.get("DOI")
+    if doi:
         identifiers.append(f"DOI: {doi}")
-    if isbn := data.get("ISBN"):
+    isbn = data.get("ISBN")
+    if isbn:
         identifiers.append(f"ISBN: {isbn}")
-    if issn := data.get("ISSN"):
+    issn = data.get("ISSN")
+    if issn:
         identifiers.append(f"ISSN: {issn}")
 
     if identifiers:
         formatted.append("\n### Identifiers\n" + "\n".join(identifiers))
 
-    if notes := item.get("meta", {}).get("numChildren", 0):
+    notes = item.get("meta", {}).get("numChildren", 0)
+    if notes:
         formatted.append(
             f"\n### Additional Information\nNumber of notes/attachments: {notes}"
         )
@@ -217,7 +234,11 @@ async def get_item_fulltext(item_key: str, ctx: Context = None) -> str:
         header = format_item(item)
 
         if attachment is not None:
-            attachment_info = f"\n## Attachment Information\n- **Key**: `{attachment.key}`\n- **Type**: {attachment.content_type}"
+            attachment_info = (
+                f"\n## Attachment Information\n"
+                f"- **Key**: `{attachment.key}`\n"
+                f"- **Type**: {attachment.content_type}"
+            )
 
             full_text_data: Any = zot.fulltext_item(attachment.key)
             if full_text_data and "content" in full_text_data:
@@ -227,9 +248,19 @@ async def get_item_fulltext(item_key: str, ctx: Context = None) -> str:
 
                 full_text = f"\n\n## Document Content\n\n{item_text}"
             else:
-                full_text = "\n\n## Document Content\n\n[\u26a0\ufe0f Attachment is available but text extraction is not possible. The document may be scanned as images or have other restrictions that prevent text extraction.]"
+                full_text = (
+                    "\n\n## Document Content\n\n"
+                    "[\u26a0\ufe0f Attachment is available but text extraction is not possible. "
+                    "The document may be scanned as images or have other restrictions "
+                    "that prevent text extraction.]"
+                )
         else:
-            attachment_info = "\n\n## Attachment Information\n[\u274c No suitable attachment found for full text extraction. This item may not have any attached files or they may not be in a supported format.]"
+            attachment_info = (
+                "\n\n## Attachment Information\n"
+                "[\u274c No suitable attachment found for full text extraction. "
+                "This item may not have any attached files or they may not be in a "
+                "supported format.]"
+            )
             full_text = ""
 
         return f"{header}{attachment_info}{full_text}"
@@ -249,7 +280,12 @@ async def get_item_fulltext(item_key: str, ctx: Context = None) -> str:
 
 @mcp.tool(
     name="zotero_search_items",
-    description="Search for items in your Zotero library, given a query string, query mode (titleCreatorYear or everything), and optional tag search (supports boolean searches). Returned results can be looked up with zotero_item_fulltext or zotero_item_metadata.",
+    description=(
+        "Search for items in your Zotero library, given a query string, "
+        "query mode (titleCreatorYear or everything), and optional tag search "
+        "(supports boolean searches). Returned results can be looked up with "
+        "zotero_item_fulltext or zotero_item_metadata."
+    ),
 )
 async def search_items(
     query: str,
@@ -321,10 +357,12 @@ async def search_items(
                     f"\n{preview}",
                 ]
 
-                if parent_item := data.get("parentItem"):
+                parent_item = data.get("parentItem")
+                if parent_item:
                     entry.insert(2, f"**Parent Item**: `{parent_item}`")
 
-                if tags := data.get("tags"):
+                tags = data.get("tags")
+                if tags:
                     tag_list = [f"`{tag['tag']}`" for tag in tags[:5]]
                     if len(tags) > 5:
                         tag_list.append("...")
@@ -349,12 +387,17 @@ async def search_items(
             creator_str = "; ".join(creators) if creators else "No authors"
 
             source = ""
-            if pub := data.get("publicationTitle"):
+            pub = data.get("publicationTitle")
+            if pub:
                 source = pub
-            elif book := data.get("bookTitle"):
-                source = f"In: {book}"
-            elif publisher := data.get("publisher"):
-                source = f"{publisher}"
+            else:
+                book = data.get("bookTitle")
+                if book:
+                    source = f"In: {book}"
+                else:
+                    publisher = data.get("publisher")
+                    if publisher:
+                        source = f"{publisher}"
 
             abstract = data.get("abstractNote", "")
             if len(abstract) > 150:
@@ -372,7 +415,8 @@ async def search_items(
             if abstract:
                 entry.append(f"\n{abstract}")
 
-            if tags := data.get("tags"):
+            tags = data.get("tags")
+            if tags:
                 tag_list = [f"`{tag['tag']}`" for tag in tags[:5]]
                 if len(tags) > 5:
                     tag_list.append("...")
