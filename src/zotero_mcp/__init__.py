@@ -559,7 +559,7 @@ def _format_json(obj: dict, indent: int = 0) -> str:
         elif value is None:
             lines.append(f'{prefix}"{key}": null')
         else:
-            lines.append(f'{prefix}"{key}": {repr(value)}')
+            lines.append(f'{prefix}"{key}": {value!r}')
     return "\n".join(lines)
 
 
@@ -778,7 +778,7 @@ async def add_tags(
                 tag_names = [t["tag"] for t in current_tags]
                 return f"Successfully added tags to `{item_key}`. Current tags: {', '.join(tag_names)}"
             except Exception:
-                pass
+                logger.debug("Failed to parse add_tags response, returning simple message")
 
         return f"Successfully added tags {', '.join(tag_list)} to `{item_key}`."
 
@@ -807,6 +807,371 @@ async def add_to_collection(
 
         zot.addto_collection(collection_key, item)
         return f"Successfully added item `{item_key}` to collection `{collection_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_remove_from_collection",
+    description="Remove an item from a collection. Provide the item key and the collection key.",
+)
+async def remove_from_collection(
+    item_key: str,
+    collection_key: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        item: Any = zot.item(item_key)
+        if not item:
+            return f"No item found with key: {item_key}"
+
+        zot.deletefrom_collection(collection_key, item)
+        return f"Successfully removed item `{item_key}` from collection `{collection_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_update_collection",
+    description=(
+        "Update a collection's name or parent collection. "
+        "Provide the collection key, the current version, and the fields to update. "
+        "Use zotero_list_collections to find the collection key and get version info."
+    ),
+)
+async def update_collection(
+    collection_key: str,
+    version: int,
+    name: str | None = None,
+    parent_collection_key: str | None = None,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        updates: dict[str, Any] = {"key": collection_key, "version": version}
+        if name is not None:
+            updates["name"] = name
+        if parent_collection_key is not None:
+            updates["parentCollection"] = parent_collection_key if parent_collection_key else ""
+
+        zot.update_collection(updates)
+        return f"Successfully updated collection `{collection_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_delete_collection",
+    description=(
+        "Delete a collection from the Zotero library. "
+        "Items in the collection will NOT be deleted, only the collection itself. "
+        "Provide the collection key."
+    ),
+)
+async def delete_collection(
+    collection_key: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        coll: Any = zot.collection(collection_key)
+        if not coll:
+            return f"No collection found with key: {collection_key}"
+
+        zot.delete_collection(coll)
+        return f"Successfully deleted collection `{collection_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_remove_tags",
+    description="Remove specific tags from a Zotero item. Provide the item key and a comma-separated list of tags to remove.",
+)
+async def remove_tags(
+    item_key: str,
+    tags: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        item: Any = zot.item(item_key)
+        if not item:
+            return f"No item found with key: {item_key}"
+
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if not tag_list:
+            return "No tags provided. Please provide a comma-separated list of tags to remove."
+
+        current_tags = item.get("data", {}).get("tags", [])
+        current_tag_names = {t["tag"] for t in current_tags}
+
+        tags_to_remove = [t for t in tag_list if t in current_tag_names]
+        tags_not_found = [t for t in tag_list if t not in current_tag_names]
+
+        if not tags_to_remove:
+            not_found_str = ", ".join(f"`{t}`" for t in tags_not_found)
+            return f"None of the specified tags were found on this item. Tags not found: {not_found_str}. Current tags: {', '.join(current_tag_names)}"
+
+        new_tags = [t for t in current_tags if t["tag"] not in set(tags_to_remove)]
+        item["data"]["tags"] = new_tags
+        zot.update_item(item["data"])
+
+        remaining = [t["tag"] for t in new_tags]
+        result_msg = f"Successfully removed tags {', '.join(f'`{t}`' for t in tags_to_remove)} from `{item_key}`."
+        if remaining:
+            result_msg += f" Remaining tags: {', '.join(remaining)}"
+        else:
+            result_msg += " No tags remaining."
+        if tags_not_found:
+            result_msg += f" (Tags not found on item: {', '.join(tags_not_found)})"
+
+        return result_msg
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_get_collection_items",
+    description=(
+        "Get items in a specific Zotero collection. "
+        "Provide the collection key to list all items in that collection."
+    ),
+)
+async def get_collection_items(
+    collection_key: str,
+    limit: int | None = 50,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        coll: Any = zot.collection(collection_key)
+        if not coll:
+            return f"No collection found with key: {collection_key}"
+
+        coll_name = coll.get("data", {}).get("name", "Unknown")
+
+        zot.add_parameters(limit=limit)
+        items: Any = zot.collection_items(collection_key)
+
+        if not items:
+            return f"Collection **{coll_name}** (`{collection_key}`) is empty."
+
+        lines = [
+            f"# Items in Collection: {coll_name}",
+            f"Collection Key: `{collection_key}`",
+            f"Found {len(items)} item(s).\n",
+        ]
+
+        for i, item in enumerate(items):
+            data = item.get("data", {})
+            item_key = item.get("key", "")
+            item_type = data.get("itemType", "unknown")
+
+            if item_type == "note":
+                note_content = data.get("note", "")
+                preview = note_content.replace("<p>", "").replace("</p>", " ").replace("<br>", " ")
+                preview = preview.replace("<strong>", "").replace("</strong>", "")
+                preview = preview.replace("<em>", "").replace("</em>", "")
+                if len(preview) > 80:
+                    preview = preview[:77] + "..."
+                lines.append(f"{i + 1}. \U0001f4dd Note `{item_key}`: {preview}")
+                continue
+
+            title = data.get("title", "Untitled")
+            date = data.get("date", "")
+            creators = []
+            for creator in data.get("creators", [])[:2]:
+                if "lastName" in creator:
+                    creators.append(creator["lastName"])
+                elif "name" in creator:
+                    creators.append(creator["name"].split()[0])
+            creator_str = ", ".join(creators) if creators else ""
+            if len(data.get("creators", [])) > 2:
+                creator_str += " et al."
+
+            entry = f"{i + 1}. **{title}** `{item_key}`"
+            if creator_str:
+                entry += f" - {creator_str}"
+            if date:
+                entry += f" ({date})"
+            lines.append(entry)
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_search_advanced",
+    description=(
+        "Advanced search in your Zotero library with multiple filter options. "
+        "You can filter by collection, tags, item type, and a text query. "
+        "All filters are optional but at least one should be provided."
+    ),
+)
+async def search_advanced(
+    query: str | None = None,
+    collection_key: str | None = None,
+    tag: str | None = None,
+    item_type: str | None = None,
+    qmode: Literal["titleCreatorYear", "everything"] | None = "titleCreatorYear",
+    sort: str | None = None,
+    direction: Literal["asc", "desc"] | None = "asc",
+    limit: int | None = 25,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        params: dict[str, Any] = {"limit": limit}
+        if query:
+            params["q"] = query
+            params["qmode"] = qmode
+        if tag:
+            params["tag"] = tag
+        if item_type:
+            params["itemType"] = item_type
+        if sort:
+            params["sort"] = sort
+        if direction:
+            params["direction"] = direction
+
+        zot.add_parameters(**params)
+
+        if collection_key:
+            results: Any = zot.collection_items(collection_key)
+        else:
+            results = zot.items()
+
+        if not results:
+            filter_desc = []
+            if query:
+                filter_desc.append(f"query='{query}'")
+            if collection_key:
+                filter_desc.append(f"collection='{collection_key}'")
+            if tag:
+                filter_desc.append(f"tag='{tag}'")
+            if item_type:
+                filter_desc.append(f"type='{item_type}'")
+            return f"No items found matching: {', '.join(filter_desc)}"
+
+        header = ["# Advanced Search Results", f"Found {len(results)} item(s)."]
+        filters = []
+        if query:
+            filters.append(f"Query: '{query}'")
+        if collection_key:
+            filters.append(f"Collection: `{collection_key}`")
+        if tag:
+            filters.append(f"Tag: {tag}")
+        if item_type:
+            filters.append(f"Type: {item_type}")
+        if filters:
+            header.append("Filters: " + " | ".join(filters))
+        header.append(
+            "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n"
+        )
+
+        formatted_results = []
+        for i, item in enumerate(results):
+            data = item.get("data", {})
+            item_key = item.get("key", "")
+            item_type = data.get("itemType", "unknown")
+
+            if item_type == "note":
+                note_content = data.get("note", "")
+                note_content = (
+                    note_content.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
+                )
+                note_content = note_content.replace("<strong>", "**").replace(
+                    "</strong>", "**"
+                )
+                note_content = note_content.replace("<em>", "*").replace("</em>", "*")
+                preview = note_content.strip()
+                if len(preview) > 120:
+                    preview = preview[:117] + "..."
+
+                entry = [
+                    f"## {i + 1}. \U0001f4dd Note",
+                    f"**Key**: `{item_key}`",
+                ]
+                parent = data.get("parentItem")
+                if parent:
+                    entry.append(f"**Parent**: `{parent}`")
+                if preview:
+                    entry.append(f"\n{preview}")
+                formatted_results.append("\n".join(entry))
+                continue
+
+            title = data.get("title", "Untitled")
+            date = data.get("date", "")
+
+            creators = []
+            for creator in data.get("creators", [])[:3]:
+                if "firstName" in creator and "lastName" in creator:
+                    creators.append(f"{creator['lastName']}, {creator['firstName']}")
+                elif "name" in creator:
+                    creators.append(creator["name"])
+            if len(data.get("creators", [])) > 3:
+                creators.append("et al.")
+            creator_str = "; ".join(creators) if creators else "No authors"
+
+            entry = [
+                f"## {i + 1}. {title}",
+                f"**Type**: {item_type} | **Date**: {date} | **Key**: `{item_key}`",
+                f"**Authors**: {creator_str}",
+            ]
+
+            pub = data.get("publicationTitle") or data.get("bookTitle")
+            if pub:
+                entry.append(f"**Source**: {pub}")
+
+            abstract = data.get("abstractNote", "")
+            if abstract:
+                if len(abstract) > 150:
+                    abstract = abstract[:147] + "..."
+                entry.append(f"\n{abstract}")
+
+            item_tags = data.get("tags", [])
+            if item_tags:
+                tag_list = [f"`{t['tag']}`" for t in item_tags[:5]]
+                if len(item_tags) > 5:
+                    tag_list.append("...")
+                entry.append(f"\n**Tags**: {' '.join(tag_list)}")
+
+            formatted_results.append("\n".join(entry))
+
+        return "\n\n".join(header + formatted_results)
 
     except Exception as e:
         return _handle_error(e)
