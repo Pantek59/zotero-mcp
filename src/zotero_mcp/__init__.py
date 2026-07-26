@@ -312,7 +312,8 @@ async def search_items(
 
         header = [
             f"# Search Results for: '{query}'",
-            f"Found {len(results)} items." + (f" Using tag filter: {tag}" if tag else ""),
+            f"Found {len(results)} items."
+            + (f" Using tag filter: {tag}" if tag else ""),
             "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n",
         ]
 
@@ -437,3 +438,375 @@ async def search_items(
         if "429" in error_msg or "rate limit" in error_msg.lower():
             return "Zotero API rate limit exceeded. Please wait a moment and try again."
         return f"Error searching items: {error_msg}"
+
+
+def _handle_error(e: Exception) -> str:
+    error_msg = str(e)
+    if "403" in error_msg or "Forbidden" in error_msg.lower():
+        return (
+            "Zotero API authentication failed. "
+            "Please verify your API key is valid and has the required permissions. "
+            "You can create a new key at https://www.zotero.org/settings/keys"
+        )
+    if "429" in error_msg or "rate limit" in error_msg.lower():
+        return "Zotero API rate limit exceeded. Please wait a moment and try again."
+    return f"Error: {error_msg}"
+
+
+@mcp.tool(
+    name="zotero_list_collections",
+    description="List all collections in the Zotero library, including their hierarchy.",
+)
+async def list_collections(ctx: Context = None) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        collections: Any = zot.all_collections()
+        if not collections:
+            return "No collections found in this library."
+
+        lines = ["# Collections"]
+        for coll in collections:
+            data = coll["data"]
+            depth = data.get("depth", 0)
+            indent = "  " * depth
+            key = data["key"]
+            name = data["name"]
+            parent = data.get("parentCollection", "")
+            parent_str = f" (parent: `{parent}`)" if parent else ""
+            lines.append(f"{indent}- **{name}** `{key}`{parent_str}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_get_item_template",
+    description="Get the field template for a Zotero item type. Use this before creating items to know which fields are available and required for a given item type (e.g. 'journalArticle', 'book', 'note', 'attachment').",
+)
+async def get_item_template(
+    item_type: str,
+    link_mode: str | None = None,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        template: Any = zot.item_template(item_type, link_mode)
+        if not template:
+            return f"No template found for item type: {item_type}"
+
+        lines = [f"## Template for `{item_type}`"]
+
+        required = template.get("required", [])
+        if required:
+            lines.append(
+                f"\n### Required fields\n{', '.join(f'`{f}`' for f in required)}"
+            )
+
+        optional_fields = []
+        for key, value in sorted(template.items()):
+            if key in (
+                "itemType",
+                "required",
+                "version",
+                "key",
+                "collections",
+                "dateAdded",
+                "dateModified",
+                "relations",
+                "dateModified",
+                "accessDate",
+                "tags",
+            ):
+                continue
+            if key not in required:
+                optional_fields.append(key)
+
+        if optional_fields:
+            lines.append(
+                f"\n### Optional fields\n{', '.join(f'`{f}`' for f in optional_fields)}"
+            )
+
+        lines.append(f"\n### Full template\n```json\n{_format_json(template)}\n```")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+def _format_json(obj: dict, indent: int = 0) -> str:
+    lines = []
+    prefix = "  " * indent
+    for key, value in sorted(obj.items()):
+        if isinstance(value, dict):
+            lines.append(f'{prefix}"{key}": {{')
+            lines.append(_format_json(value, indent + 1))
+            lines.append(f"{prefix}}}")
+        elif isinstance(value, list):
+            lines.append(f'{prefix}"{key}": {value}')
+        elif isinstance(value, bool):
+            lines.append(f'{prefix}"{key}": {str(value).lower()}')
+        elif value is None:
+            lines.append(f'{prefix}"{key}": null')
+        else:
+            lines.append(f'{prefix}"{key}": {repr(value)}')
+    return "\n".join(lines)
+
+
+@mcp.tool(
+    name="zotero_create_items",
+    description=(
+        "Create one or more items in the Zotero library. "
+        "Each item must include at minimum 'itemType' and the required fields for that type. "
+        "Use zotero_get_item_template first to determine the required fields. "
+        "To create a note, set itemType to 'note' and include 'note' and 'parentItem' fields. "
+        "To create a linked URL attachment, set itemType to 'attachment', linkMode to 'linked_url', "
+        "and include 'url' and 'title' fields."
+    ),
+)
+async def create_items(
+    items_json: str,
+    parent_id: str | None = None,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        import json
+
+        payload = json.loads(items_json)
+        if isinstance(payload, dict):
+            payload = [payload]
+
+        if len(payload) > 50:
+            return "Error: You can create a maximum of 50 items per call."
+
+        result: Any = zot.create_items(payload, parentid=parent_id)
+
+        successful = result.get("success", {})
+        failed = result.get("failed", {})
+        unchanged = result.get("unchanged", {})
+
+        lines = [f"## Created {len(successful)} item(s)"]
+
+        for key, item_key in successful.items():
+            idx = int(key)
+            item_type = payload[idx].get("itemType", "unknown")
+            title = (
+                payload[idx].get("title", payload[idx].get("note", "")[:50])
+                or "Untitled"
+            )
+            lines.append(f"- `{item_key}` ({item_type}): {title}")
+
+        if failed:
+            lines.append(f"\n### Failed ({len(failed)} item(s))")
+            for key, error in failed.items():
+                lines.append(f"- Item {key}: {error}")
+
+        if unchanged:
+            lines.append(f"\n### Unchanged ({len(unchanged)} item(s))")
+            for key, item_key in unchanged.items():
+                lines.append(f"- `{item_key}`: already exists")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_update_item",
+    description=(
+        "Update an existing Zotero item's metadata. "
+        "Provide the item key and a JSON object with the fields to update. "
+        "You only need to include the fields you want to change plus the 'key' and 'version' fields. "
+        "Use zotero_item_metadata to get the current item data including its version."
+    ),
+)
+async def update_item(
+    item_key: str,
+    version: int,
+    updates_json: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        import json
+
+        updates = json.loads(updates_json)
+        updates["key"] = item_key
+        updates["version"] = version
+
+        response = zot.update_item(updates)
+
+        if hasattr(response, "status_code") and response.status_code == 204:
+            return f"Successfully updated item `{item_key}`."
+        if hasattr(response, "json"):
+            try:
+                data = response.json()
+                return f"Successfully updated item `{item_key}`. Version: {data.get('version', 'unknown')}"
+            except Exception:
+                return f"Successfully updated item `{item_key}`."
+
+        return f"Successfully updated item `{item_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_delete_item",
+    description=(
+        "Move an item to the Zotero trash. This is safer than permanent deletion "
+        "because the item can be recovered from the trash. "
+        "Provide the item key and its current version."
+    ),
+)
+async def delete_item(
+    item_key: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        item: Any = zot.item(item_key)
+        if not item:
+            return f"No item found with key: {item_key}"
+
+        item["data"]["deleted"] = 1
+        zot.update_item(item["data"])
+        return f"Successfully moved item `{item_key}` to trash."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_create_collection",
+    description=(
+        "Create a new collection in the Zotero library. "
+        "Provide the collection name and optionally a parent collection key to create a sub-collection."
+    ),
+)
+async def create_collection(
+    name: str,
+    parent_collection_key: str | None = None,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        payload = [{"name": name}]
+        if parent_collection_key:
+            payload[0]["parentCollection"] = parent_collection_key
+
+        result: Any = zot.create_collections(payload)
+
+        successful = result.get("success", {})
+        failed = result.get("failed", {})
+
+        if successful:
+            keys = list(successful.values())
+            lines = ["## Created collection"]
+            for collection_key in keys:
+                lines.append(f"- **{name}** `{collection_key}`")
+                if parent_collection_key:
+                    lines.append(f"  Parent: `{parent_collection_key}`")
+            return "\n".join(lines)
+
+        if failed:
+            return f"Failed to create collection: {failed}"
+
+        return "Collection creation returned no result."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_add_tags",
+    description="Add one or more tags to a Zotero item. Provide the item key and a comma-separated list of tags.",
+)
+async def add_tags(
+    item_key: str,
+    tags: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        item: Any = zot.item(item_key)
+        if not item:
+            return f"No item found with key: {item_key}"
+
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if not tag_list:
+            return "No tags provided. Please provide a comma-separated list of tags."
+
+        result = zot.add_tags(item, *tag_list)
+
+        if hasattr(result, "json"):
+            try:
+                updated = result.json()
+                current_tags = updated.get("data", {}).get("tags", [])
+                tag_names = [t["tag"] for t in current_tags]
+                return f"Successfully added tags to `{item_key}`. Current tags: {', '.join(tag_names)}"
+            except Exception:
+                pass
+
+        return f"Successfully added tags {', '.join(tag_list)} to `{item_key}`."
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(
+    name="zotero_add_to_collection",
+    description="Add an item to a collection. Provide the item key and the collection key.",
+)
+async def add_to_collection(
+    item_key: str,
+    collection_key: str,
+    ctx: Context = None,
+) -> str:
+    try:
+        zot = _get_zotero_client(ctx)
+    except (MissingCredentialsError, InvalidCredentialsError) as e:
+        return _handle_credential_error(e)
+
+    try:
+        item: Any = zot.item(item_key)
+        if not item:
+            return f"No item found with key: {item_key}"
+
+        zot.addto_collection(collection_key, item)
+        return f"Successfully added item `{item_key}` to collection `{collection_key}`."
+
+    except Exception as e:
+        return _handle_error(e)

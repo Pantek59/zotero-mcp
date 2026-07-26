@@ -9,6 +9,13 @@ class AttachmentDetails(BaseModel):
     content_type: str
 
 
+class CollectionInfo(BaseModel):
+    key: str
+    name: str
+    parent_collection_key: str | None = None
+    depth: int = 0
+
+
 def get_attachment_details(
     zot: zotero.Zotero,
     item: dict[str, Any],
@@ -64,3 +71,13 @@ def get_attachment_details(
         pass
 
     return None
+
+
+def format_collection(collection: dict[str, Any], depth: int = 0) -> CollectionInfo:
+    data = collection["data"]
+    return CollectionInfo(
+        key=data["key"],
+        name=data["name"],
+        parent_collection_key=data.get("parentCollection") or None,
+        depth=depth,
+    )
